@@ -6,6 +6,6 @@ torch>=2.0.0
 torchaudio>=2.0.0
 deepface==0.0.79
 librosa==0.10.1
-numpy>=1.24.0,<2.0.0
+numpy>=1.26.0
 Pillow>=10.0.0
 tensorflow>=2.15.0
