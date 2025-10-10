@@ -1,0 +1,12 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+transformers==4.35.2
+torch==2.1.1
+torchaudio==2.1.1
+opencv-python==4.8.1.78
+deepface==0.0.79
+librosa==0.10.1
+numpy==1.24.3
+Pillow==10.1.0
+tensorflow==2.15.0
