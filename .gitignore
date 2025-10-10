@@ -52,6 +52,11 @@ tmp/
 .env
 .env.local
 .env.*.local
+.env.development.local
+.env.production.local
+
+# Keep example files
+!.env.example
 
 # Logs
 logs/

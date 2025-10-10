@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Upload, Loader2, AlertCircle, User, Smile, Calendar } from 'lucide-react';
 import axios from 'axios';
+import { API_ENDPOINTS } from '../config/api';
 
 const FaceAnalysis = () => {
   const [file, setFile] = useState(null);
@@ -39,7 +40,7 @@ const FaceAnalysis = () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await axios.post('http://localhost:8000/api/face-analysis', formData, {
+      const response = await axios.post(API_ENDPOINTS.faceAnalysis, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },

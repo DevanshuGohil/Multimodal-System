@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { FileText, Loader2, AlertCircle, CheckCircle, Copy } from 'lucide-react';
 import axios from 'axios';
+import { API_ENDPOINTS } from '../config/api';
 
 const TextSummarization = () => {
   const [text, setText] = useState('');
@@ -32,7 +33,7 @@ const TextSummarization = () => {
       formData.append('max_length', '130');
       formData.append('min_length', '30');
 
-      const response = await axios.post('http://localhost:8000/api/summarize', formData);
+      const response = await axios.post(API_ENDPOINTS.summarize, formData);
       setResult(response.data);
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to summarize text');

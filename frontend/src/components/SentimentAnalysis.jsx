@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Send, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import axios from 'axios';
+import { API_ENDPOINTS } from '../config/api';
 
 const SentimentAnalysis = () => {
   const [text, setText] = useState('');
@@ -23,7 +24,7 @@ const SentimentAnalysis = () => {
       const formData = new FormData();
       formData.append('text', text);
 
-      const response = await axios.post('http://localhost:8000/api/sentiment', formData);
+      const response = await axios.post(API_ENDPOINTS.sentiment, formData);
       setResult(response.data);
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to analyze sentiment');

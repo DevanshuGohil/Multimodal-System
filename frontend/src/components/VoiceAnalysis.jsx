@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Upload, Loader2, AlertCircle, Mic, Music } from 'lucide-react';
 import axios from 'axios';
+import { API_ENDPOINTS } from '../config/api';
 
 const VoiceAnalysis = () => {
   const [file, setFile] = useState(null);
@@ -37,7 +38,7 @@ const VoiceAnalysis = () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await axios.post('http://localhost:8000/api/voice-analysis', formData, {
+      const response = await axios.post(API_ENDPOINTS.voiceAnalysis, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
