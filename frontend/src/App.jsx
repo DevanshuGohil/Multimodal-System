@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Brain, MessageSquare, FileText, Image, Mic } from 'lucide-react';
+import { Brain, MessageSquare, FileText, Image, Mic, Video } from 'lucide-react';
 import Header from './components/Header';
 import SentimentAnalysis from './components/SentimentAnalysis';
 import TextSummarization from './components/TextSummarization';
 import FaceAnalysis from './components/FaceAnalysis';
 import VoiceAnalysis from './components/VoiceAnalysis';
+import VideoAnalysis from './components/VideoAnalysis';
 
 function App() {
   const [activeTab, setActiveTab] = useState('sentiment');
@@ -15,6 +16,7 @@ function App() {
     { id: 'summarize', name: 'Text Summarization', icon: FileText, color: 'from-purple-500 to-pink-500' },
     { id: 'face', name: 'Face Analysis', icon: Image, color: 'from-orange-500 to-red-500' },
     { id: 'voice', name: 'Voice Analysis', icon: Mic, color: 'from-green-500 to-emerald-500' },
+    { id: 'video', name: 'Video Analysis', icon: Video, color: 'from-indigo-500 to-violet-500' },
   ];
 
   const renderActiveComponent = () => {
@@ -27,6 +29,8 @@ function App() {
         return <FaceAnalysis />;
       case 'voice':
         return <VoiceAnalysis />;
+      case 'video':
+        return <VideoAnalysis />;
       default:
         return <SentimentAnalysis />;
     }

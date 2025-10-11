@@ -18,12 +18,13 @@ export const API_ENDPOINTS = {
   summarize: `${API_BASE_URL}/api/summarize`,
   faceAnalysis: `${API_BASE_URL}/api/face-analysis`,
   voiceAnalysis: `${API_BASE_URL}/api/voice-analysis`,
+  videoAnalysis: `${API_BASE_URL}/api/video-analysis`,
   health: `${API_BASE_URL}/`,
 };
 
 // API Configuration
 export const API_CONFIG = {
-  timeout: 120000, // 2 minutes for ML model inference
+  timeout: 300000, // 5 minutes for video processing
   headers: {
     'Content-Type': 'application/json',
   },

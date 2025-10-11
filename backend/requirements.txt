@@ -9,3 +9,10 @@ librosa
 numpy
 Pillow
 tensorflow
+moviepy
+opencv-python
+openai-whisper
+scipy
+soundfile
+ffmpeg-python
+tf-keras
