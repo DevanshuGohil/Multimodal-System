@@ -3,11 +3,48 @@ services:
     name: voicera-backend
     env: python
     buildCommand: |
-      pip install -r backend/requirements.txt
+      echo "Checking for cached dependencies..."
+      if [ -d "$PYTHON_VIRTUALENV" ]; then
+        echo "Using cached virtual environment"
+      else
+        echo "Creating new virtual environment..."
+        python -m venv $PYTHON_VIRTUALENV
+      fi
+      
+      # Activate virtual environment
+      source $PYTHON_VIRTUALENV/bin/activate
+      
+      # Install or update dependencies
+      echo "Installing/updating dependencies..."
+      pip install --upgrade pip
+      pip install -r backend/requirements.txt --cache-dir /tmp/pip-cache
+      
+      # Save the virtual environment for future builds
+      echo "Dependencies installed successfully"
+      
     startCommand: |
-      cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+      echo "Starting application on port 8000..."
+      # Activate the virtual environment with dependencies
+      source $PYTHON_VIRTUALENV/bin/activate
+      cd backend && uvicorn main:app --host 0.0.0.0 --port 8000 --log-level debug
+      
     envVars:
       - key: PORT
-        value: 10000
+        value: 8000
+      - key: PYTHON_VIRTUALENV
+        value: /opt/render/project/.venv
+      - key: PIP_CACHE_DIR
+        value: /tmp/pip-cache
+      - key: PYTHONDONTWRITEBYTECODE
+        value: 1
+      - key: PYTHONUNBUFFERED
+        value: 1
+        
     plan: free
     region: oregon  # Choose the closest region to your users
+    autoDeploy: true
+    
+    # Cache directories between builds
+    buildCache:
+      - /opt/render/project/.venv
+      - /tmp/pip-cache
