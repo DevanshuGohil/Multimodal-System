@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Media files
+*.mp4
+*.wav
+*.mp3
+*.mov
+*.avi
+
+# Frontend build artifacts
+frontend/build/
+frontend/.next/
+frontend/out/
+
+# Logs
+logs/
+*.log
+
+# Local development
+*.local
+
+# Temp files
+temp_*
+*.tmp
