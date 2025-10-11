@@ -39,13 +39,27 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware
+# CORS middleware - Allow frontend origins
+allowed_origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "https://*.railway.app",
+    "https://*.vercel.app",
+    "https://*.netlify.app",
+]
+
+# Get custom origins from environment variable if set
+custom_origins = os.environ.get("ALLOWED_ORIGINS", "")
+if custom_origins:
+    allowed_origins.extend(custom_origins.split(","))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_origin_regex=r"https://.*\.railway\.app"
 )
 
 # Initialize models (lazy loading)
@@ -331,4 +345,5 @@ async def event_generator(analysis_id: str) -> AsyncGenerator[str, None]:
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
