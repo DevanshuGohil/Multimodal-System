@@ -1,4 +1,4 @@
-# Use a minimal base image
+# Multi-stage build to reduce final image size
 [phases.setup]
 nixPkgs = [
     "python311",
@@ -15,21 +15,49 @@ cmds = [
     ". /app/venv/bin/activate && \
      cd backend && \
      pip install --no-cache-dir --upgrade pip && \
-     pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cpu",
+     # Install PyTorch CPU only (smaller)
+     pip install --no-cache-dir torch==2.1.0+cpu torchaudio==2.1.0+cpu --index-url https://download.pytorch.org/whl/cpu",
      
-    # Install requirements with no cache and clean up
+    # Install only production dependencies (no dev dependencies)
     ". /app/venv/bin/activate && \
      cd backend && \
-     pip install --no-cache-dir -r requirements.txt && \
-     find /app/venv -type d -name '__pycache__' -exec rm -r {} + && \
-     find /app/venv -type d -name 'tests' -exec rm -r {} + && \
-     find /app/venv -name '*.pyc' -delete"
+     # Install core requirements first
+     pip install --no-cache-dir fastapi==0.104.0 uvicorn[standard]==0.24.0 python-multipart==0.0.6 && \
+     # Install ML dependencies with specific versions
+     pip install --no-cache-dir \
+         transformers==4.35.0 \
+         deepface==0.0.79 \
+         openai-whisper==20231117 \
+         librosa==0.10.1 \
+         moviepy==1.0.3 \
+         opencv-python-headless==4.8.1.78 \
+         soundfile==0.12.1 \
+         ffmpeg-python==0.2.0 \
+         numpy==1.24.0 \
+         scipy==1.11.0 \
+         Pillow==10.1.0 \
+         tensorflow-cpu==2.15.0 \
+         tf-keras==2.15.0 && \
+     # Clean up
+     find /app/venv -type d -name '__pycache__' -exec rm -rf {} + && \
+     find /app/venv -type d -name 'tests' -exec rm -rf {} + && \
+     find /app/venv -name '*.pyc' -delete && \
+     find /app/venv -name '*.pyo' -delete && \
+     find /app/venv -name '*.pyd' -delete && \
+     find /app/venv -name '*.so' -delete && \
+     rm -rf /app/venv/lib/python3.11/site-packages/tensorflow/include/ && \
+     rm -rf /app/venv/lib/python3.11/site-packages/tensorflow/python/autograph/ && \
+     rm -rf /app/venv/lib/python3.11/site-packages/tensorflow/lite/experimental/ && \
+     rm -rf /app/venv/lib/python3.11/site-packages/tensorboard/"
 ]
 
 [phases.build]
 cmds = [
     "echo 'Cleaning up build dependencies...' && \
-     rm -rf /tmp/* /var/tmp/* /root/.cache/* /var/cache/apt/*"
+     find / -type d -name '__pycache__' -exec rm -rf {} + && \
+     find / -type f -name '*.py[co]' -delete && \
+     find / -type f -name '*.so' -delete && \
+     rm -rf /tmp/* /var/tmp/* /root/.cache/* /var/cache/apt/* /var/lib/apt/lists/*"
 ]
 
 [variables]
