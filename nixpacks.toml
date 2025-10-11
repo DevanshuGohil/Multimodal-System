@@ -3,19 +3,22 @@ nixPkgs = [
     'python311',
     'python311Packages.pip',
     'ffmpeg',
-    'python311Packages.setuptools'
+    'python311Packages.setuptools',
+    'python311Packages.virtualenv'
 ]
 
 [phases.install]
 cmds = [
-    # Use Nix's Python packages instead of pip
-    "cd backend && python -m pip install --user -r requirements.txt --break-system-packages"
+    # Create a virtual environment
+    "python -m venv /app/venv",
+    # Activate virtual environment and install requirements
+    ". /app/venv/bin/activate && cd backend && pip install --upgrade pip && pip install -r requirements.txt"
 ]
 
 [phases.build]
 cmds = [
-    "echo 'Skipping build phase'"
+    "echo 'Build phase completed'"
 ]
 
 [start]
-cmd = "cd backend && python -m uvicorn main:app --host 0.0.0.0 --port $PORT"
+cmd = "cd backend && . /app/venv/bin/activate && uvicorn main:app --host 0.0.0.0 --port $PORT"
