@@ -1,22 +1,35 @@
+# Use a minimal base image
 [phases.setup]
 nixPkgs = [
     "python311",
     "python311Packages.pip",
-    "ffmpeg",
-    "python311Packages.setuptools",
-    "python311Packages.virtualenv"
+    "ffmpeg"
 ]
 
 [phases.install]
 cmds = [
-    "python -m venv /app/venv",
-    ". /app/venv/bin/activate && cd backend && pip install --upgrade pip && pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu",
-    ". /app/venv/bin/activate && cd backend && pip install -r requirements.txt --cache-dir /tmp/pip-cache"
+    # Create minimal virtual environment
+    "python -m venv --system-site-packages /app/venv",
+    
+    # Install only essential packages with no cache
+    ". /app/venv/bin/activate && \
+     cd backend && \
+     pip install --no-cache-dir --upgrade pip && \
+     pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cpu",
+     
+    # Install requirements with no cache and clean up
+    ". /app/venv/bin/activate && \
+     cd backend && \
+     pip install --no-cache-dir -r requirements.txt && \
+     find /app/venv -type d -name '__pycache__' -exec rm -r {} + && \
+     find /app/venv -type d -name 'tests' -exec rm -r {} + && \
+     find /app/venv -name '*.pyc' -delete"
 ]
 
 [phases.build]
 cmds = [
-    "echo 'Build phase completed'"
+    "echo 'Cleaning up build dependencies...' && \
+     rm -rf /tmp/* /var/tmp/* /root/.cache/* /var/cache/apt/*"
 ]
 
 [variables]
