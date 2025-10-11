@@ -11,14 +11,23 @@ nixPkgs = [
 cmds = [
     # Create a virtual environment
     "python -m venv /app/venv",
-    # Activate virtual environment and install requirements
-    ". /app/venv/bin/activate && cd backend && pip install --upgrade pip && pip install -r requirements.txt"
+    # Activate virtual environment and install requirements with cache
+    ". /app/venv/bin/activate && " +
+    "cd backend && " +
+    "pip install --upgrade pip && " +
+    "pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu && " +
+    "pip install -r requirements.txt --cache-dir /tmp/pip-cache"
 ]
 
 [phases.build]
 cmds = [
     "echo 'Build phase completed'"
 ]
+
+[variables]
+# Enable HuggingFace offline mode to use cached models
+TRANSFORMERS_OFFLINE = "1"
+HF_DATASETS_OFFLINE = "1"
 
 [start]
 cmd = "cd backend && . /app/venv/bin/activate && uvicorn main:app --host 0.0.0.0 --port $PORT"
