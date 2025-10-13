@@ -1,219 +1,111 @@
 """
-Voice Emotion Classification Module
-===================================
+Voice Emotion Classification using Groq API
+===========================================
 
-A production-ready voice emotion classifier using Wav2Vec2 transformer model.
-Provides emotion detection, audio feature extraction, and detailed analysis.
+Fast voice emotion analysis using Groq's Whisper + Llama models.
+Provides audio transcription, emotion detection, and audio feature extraction.
 
 Dependencies:
-    pip install torch torchaudio transformers librosa numpy
+    pip install requests librosa numpy python-dotenv soundfile
 """
 
 import os
 import tempfile
 from typing import Dict, Optional, Any, Tuple
-import torch
-import torchaudio
-from transformers import Wav2Vec2FeatureExtractor, Wav2Vec2ForSequenceClassification, Wav2Vec2Processor, Wav2Vec2ForCTC
+import requests
 import librosa
 import numpy as np
-import speech_recognition as sr
-from pydub import AudioSegment
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class VoiceAnalyzer:
     """
-    Voice Emotion Analyzer
+    Voice Emotion Analyzer using Groq API
     
-    Analyzes audio files to detect emotions using Wav2Vec2 transformer model.
-    Returns detailed emotion analysis with confidence scores and audio features.
+    Analyzes audio files to detect emotions using Groq's AI models.
+    Combines Whisper for transcription and Llama for emotion detection.
     
     Usage:
-        analyzer = VoiceAnalyzer()
+        analyzer = VoiceAnalyzer(api_key="your_groq_api_key")
         result = analyzer.analyze_audio("audio.wav")
     """
     
     def __init__(
         self,
-        model_name: str = "ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition",
-        device: Optional[str] = None,
+        api_key: Optional[str] = None,
+        model: str = "llama-3.3-70b-versatile",
         progress_callback: Optional[callable] = None
     ):
-        """Initialize Voice Analyzer
+        """
+        Initialize Voice Analyzer
         
         Args:
-            model_name: Name or path of the pre-trained model
-            device: Device to run the model on ('cuda' or 'cpu')
-            progress_callback: Optional callback function for progress updates
+            api_key: Groq API key (or set GROQ_API_KEY in environment)
+            model: Groq model to use for emotion analysis
+            progress_callback: Optional callback for progress updates
         """
-        self.model_name = model_name
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.api_key = api_key or os.getenv("GROQ_API_KEY")
+        
+        if not self.api_key:
+            raise ValueError("GROQ_API_KEY is required. Set it in environment or pass to constructor.")
+        
+        self.model = model
+        self.base_url = "https://api.groq.com/openai/v1"
         self.progress_callback = progress_callback or (lambda **kwargs: None)
         
         # Emotion mappings
         self.emotion_labels = {
-            0: "anger",
-            1: "disgust",
-            2: "fear",
-            3: "happiness",
-            4: "neutral",
-            5: "sadness",
-            6: "surprise"
+            "anger": "Anger",
+            "disgust": "Disgust",
+            "fear": "Fear",
+            "happiness": "Happiness",
+            "neutral": "Neutral",
+            "sadness": "Sadness",
+            "surprise": "Surprise"
         }
         
-        # Initialize models and processors
-        self.model = None
-        self.feature_extractor = None
-        self.speech_recognizer = None
+        self.emotion_emoji = {
+            "anger": "😠",
+            "disgust": "🤢",
+            "fear": "😨",
+            "happiness": "😊",
+            "neutral": "😐",
+            "sadness": "😢",
+            "surprise": "😮"
+        }
         
-        # Load models
-        self._load_models()
+        print(f"✅ Voice Analyzer initialized with Groq API ({self.model})")
     
-    def _load_models(self):
-        """Load all required models and processors"""
+    def _update_progress(self, stage: str, progress: float, message: str = ''):
+        """Update progress callback"""
         try:
-            self._update_progress('loading_models', 0.2, 'Loading voice analysis model...')
-            
-            # Load emotion classification model
-            self.feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(self.model_name)
-            self.model = Wav2Vec2ForSequenceClassification.from_pretrained(
-                self.model_name,
-                num_labels=len(self.emotion_labels),
-                output_hidden_states=False,
-                output_attentions=False,
-                gradient_checkpointing=True
-            ).to(self.device)
-            
-            # Initialize speech recognizer
-            self.speech_recognizer = sr.Recognizer()
-            self.speech_recognizer.dynamic_energy_threshold = True
-            self.speech_recognizer.pause_threshold = 0.8
-            self.speech_recognizer.phrase_threshold = 0.3
-            self.speech_recognizer.non_speaking_duration = 0.5
-            
-            # Test speech recognizer initialization
+            self.progress_callback(stage=stage, progress=progress, message=message)
+        except TypeError:
             try:
-                with tempfile.NamedTemporaryFile(suffix='.wav') as test_file:
-                    # Create a silent audio file for testing
-                    AudioSegment.silent(duration=100).export(test_file.name, format='wav')
-                    with sr.AudioFile(test_file.name) as source:
-                        self.speech_recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                print("✅ Speech recognizer initialized successfully!")
-            except Exception as e:
-                print(f"⚠️  Speech recognizer test failed: {e}")
-                print("⚠️  Transcription may not work properly")
-            
-            self._update_progress('loading_models', 1.0, 'Models loaded successfully!')
-            print("✅ Voice analysis model loaded successfully!")
-            
-        except Exception as e:
-            print(f"❌ Error loading models: {e}")
-            print("⚠️  Some features may be limited")
-            if not hasattr(self, 'model'):
-                self.model = None
+                self.progress_callback(stage, progress, message)
+            except:
+                pass
     
-    def _update_progress(self, stage: str, progress: float, message: str = '') -> None:
-        """Helper method to update progress
-        
-        Args:
-            stage: Current processing stage
-            progress: Progress value (0.0 to 1.0)
-            message: Optional status message
-        """
-        if self.progress_callback is not None:
-            try:
-                # Try calling with keyword arguments first
-                self.progress_callback(stage=stage, progress=progress, message=message)
-            except TypeError:
-                try:
-                    # Fall back to positional arguments
-                    self.progress_callback(stage, progress, message)
-                except Exception as e:
-                    print(f"⚠️  Error in progress callback: {e}")
-
-    def _transcribe_audio(self, audio_path: str) -> Tuple[str, Dict[str, Any]]:
-        """Transcribe audio to text using speech recognition"""
-        tmp_wav_path = None
-        try:
-            # Initialize speech recognizer if not already done
-            if not hasattr(self, 'speech_recognizer') or self.speech_recognizer is None:
-                self.speech_recognizer = sr.Recognizer()
-            
-            # Convert audio to WAV if needed
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_wav:
-                tmp_wav_path = tmp_wav.name
-            
-            # Convert to WAV format if needed
-            try:
-                if not audio_path.lower().endswith('.wav'):
-                    audio = AudioSegment.from_file(audio_path)
-                    audio = audio.set_frame_rate(16000).set_channels(1)
-                    audio.export(tmp_wav_path, format='wav')
-                    audio_path = tmp_wav_path
-            except Exception as e:
-                print(f"⚠️  Audio conversion error: {e}")
-                return "", {
-                    "status": "error",
-                    "error": f"Audio conversion failed: {str(e)}",
-                    "transcription_available": False
-                }
-            
-            # Use speech recognition
-            try:
-                with sr.AudioFile(audio_path) as source:
-                    # Adjust for ambient noise and record
-                    self.speech_recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                    audio_data = self.speech_recognizer.record(source)
-                    
-                    # Try Google's speech recognition
-                    try:
-                        text = self.speech_recognizer.recognize_google(audio_data, language='en-US')
-                        return text, {"status": "success"}
-                    except sr.UnknownValueError:
-                        return "", {
-                            "status": "error",
-                            "error": "Speech recognition could not understand audio",
-                            "transcription_available": False
-                        }
-                    except sr.RequestError as e:
-                        return "", {
-                            "status": "error",
-                            "error": f"Could not request results from Google Speech Recognition service: {e}",
-                            "transcription_available": False
-                        }
-            
-            except Exception as e:
-                return "", {
-                    "status": "error",
-                    "error": f"Error processing audio file: {str(e)}",
-                    "transcription_available": False
-                }
-                
-        except Exception as e:
-            return "", {
-                "status": "error",
-                "error": f"Unexpected error in transcription: {str(e)}",
-                "transcription_available": False
-            }
-            
-        finally:
-            # Clean up temporary file
-            if tmp_wav_path and os.path.exists(tmp_wav_path):
-                try:
-                    os.unlink(tmp_wav_path)
-                except Exception as e:
-                    print(f"⚠️  Error cleaning up temporary file: {e}")
-
     def analyze_audio(self, audio_path: str) -> Dict[str, Any]:
         """
-        Analyze audio file and return emotion classification and transcription
+        Analyze audio file and return emotion classification
         
         Args:
             audio_path: Path to audio file (WAV, MP3, etc.)
             
         Returns:
-            Dict containing analysis results with emotion and transcription
+            Dict containing:
+            {
+                "status": "success",
+                "transcription": "...",
+                "emotion": {...},
+                "audio_features": {...},
+                "metadata": {...}
+            }
         """
+        
         # Validate file
         if not os.path.exists(audio_path):
             return {
@@ -223,83 +115,37 @@ class VoiceAnalyzer:
             }
         
         try:
-            # Load audio
+            # Step 1: Load audio and extract features
             self._update_progress('loading_audio', 0.1, 'Loading audio file...')
             speech, sample_rate = librosa.load(audio_path, sr=16000)
             duration = librosa.get_duration(y=speech, sr=sample_rate)
             
-            # Transcribe audio
-            self._update_progress('transcribing', 0.2, 'Transcribing audio...')
-            transcript, transcript_info = self._transcribe_audio(audio_path)
-            
-            # Extract audio features
-            self._update_progress('extracting_features', 0.3, 'Extracting audio features...')
+            self._update_progress('extracting_features', 0.2, 'Extracting audio features...')
             audio_features = self._extract_audio_features(speech, sample_rate)
             
-            # If model not available, return basic analysis
-            if self.model is None:
-                self._update_progress('error', 1.0, 'Model not available')
-                return {
-                    "status": "error",
-                    "audio_features": audio_features,
-                    "duration_seconds": round(duration, 2)
+            # Step 2: Transcribe audio using Groq Whisper
+            self._update_progress('transcribing', 0.3, 'Transcribing audio...')
+            transcript, transcript_status = self._transcribe_audio_groq(audio_path)
+            
+            # Step 3: Analyze emotion from transcript
+            if transcript and transcript_status == "success":
+                self._update_progress('analyzing_emotion', 0.6, 'Analyzing voice emotion...')
+                emotion_result = self._analyze_emotion_groq(transcript, audio_features)
+            else:
+                emotion_result = {
+                    "dominant": "neutral",
+                    "confidence": 0.5,
+                    "all_emotions": {"neutral": 0.5},
+                    "top_3": [{"emotion": "neutral", "confidence": 0.5}]
                 }
             
-            # Prepare input
-            self._update_progress('preparing_model', 0.5, 'Preparing audio for analysis...')
-            inputs = self.feature_extractor(
-                speech,
-                sampling_rate=16000,
-                return_tensors="pt",
-                padding=True
-            ).to(self.device)
-            
-            # Run inference
-            self._update_progress('analyzing_audio', 0.7, 'Analyzing voice patterns...')
-            with torch.no_grad():
-                outputs = self.model(**inputs)
-                logits = outputs.logits
-            
-            # Calculate probabilities
-            self._update_progress('processing_results', 0.85, 'Processing analysis results...')
-            probs = torch.nn.functional.softmax(logits, dim=-1)
-            predicted_id = torch.argmax(probs, dim=-1).item()
-            confidence = probs[0][predicted_id].item()
-            
-            # Get emotion label
-            emotion_name = self.emotion_labels.get(predicted_id, "unknown")
-            
-            # Get all emotion scores
-            all_emotions = {}
-            for idx, prob in enumerate(probs[0].tolist()):
-                label = self.emotion_labels.get(idx, f"emotion_{idx}")
-                all_emotions[label] = round(prob, 4)
-            
-            # Sort emotions by score
-            sorted_emotions = sorted(
-                all_emotions.items(),
-                key=lambda x: x[1],
-                reverse=True
-            )
-            
             # Build response
-            self._update_progress('finalizing', 0.95, 'Finalizing results...')
+            self._update_progress('finalizing', 0.9, 'Finalizing results...')
             response = {
                 "status": "success",
                 "transcription": transcript if transcript else "No transcription available",
-                "transcription_status": transcript_info.get("status", "not_attempted"),
-                "emotion": {
-                    "dominant": emotion_name,
-                    "confidence": round(confidence, 4),
-                    "all_emotions": all_emotions,
-                    "top_3": [
-                        {
-                            "emotion": emotion,
-                            "confidence": round(score, 4)
-                        }
-                        for emotion, score in sorted_emotions[:3]
-                    ]
-                },
+                "transcription_status": transcript_status,
+                "emotion": emotion_result,
                 "audio_features": {
                     "duration_seconds": round(duration, 2),
                     "energy": audio_features["energy"],
@@ -309,14 +155,14 @@ class VoiceAnalyzer:
                     "sample_rate": sample_rate
                 },
                 "metadata": {
-                    "model": "Wav2Vec2-XLSR",
-                    "model_name": self.model_name,
-                    "device": self.device,
+                    "model": self.model,
+                    "provider": "Groq API",
                     "file_name": os.path.basename(audio_path),
                     "has_transcription": bool(transcript)
                 }
             }
             
+            self._update_progress('complete', 1.0, 'Analysis complete!')
             return response
             
         except Exception as e:
@@ -324,6 +170,200 @@ class VoiceAnalyzer:
                 "status": "error",
                 "error": str(e),
                 "audio_path": audio_path
+            }
+    
+    def _transcribe_audio_groq(self, audio_path: str) -> Tuple[str, str]:
+        """
+        Transcribe audio using Groq Whisper API
+        
+        Args:
+            audio_path: Path to audio file
+            
+        Returns:
+            Tuple of (transcript, status)
+        """
+        try:
+            # Convert to WAV if needed
+            temp_wav = None
+            if not audio_path.lower().endswith('.wav'):
+                temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                temp_path = temp_wav.name
+                temp_wav.close()
+                
+                # Convert using librosa
+                audio, sr = librosa.load(audio_path, sr=16000)
+                import soundfile as sf
+                sf.write(temp_path, audio, sr)
+                audio_path = temp_path
+            
+            # Call Groq Whisper API
+            url = f"{self.base_url}/audio/transcriptions"
+            
+            with open(audio_path, 'rb') as audio_file:
+                files = {
+                    'file': (os.path.basename(audio_path), audio_file, 'audio/wav')
+                }
+                data = {
+                    'model': 'whisper-large-v3-turbo',
+                    'response_format': 'json',
+                    'language': 'en',
+                    'temperature': '0'
+                }
+                
+                headers = {
+                    'Authorization': f'Bearer {self.api_key}'
+                }
+                
+                response = requests.post(
+                    url,
+                    headers=headers,
+                    files=files,
+                    data=data,
+                    timeout=120
+                )
+            
+            # Cleanup temp file
+            if temp_wav:
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+            
+            if response.status_code == 200:
+                result = response.json()
+                transcript = result.get('text', '')
+                return transcript, "success"
+            else:
+                return "", "error"
+                
+        except Exception as e:
+            print(f"⚠️  Transcription error: {e}")
+            return "", "error"
+    
+    def _analyze_emotion_groq(self, transcript: str, audio_features: Dict) -> Dict[str, Any]:
+        """
+        Analyze emotion from transcript using Groq API
+        
+        Args:
+            transcript: Audio transcript
+            audio_features: Extracted audio features
+            
+        Returns:
+            Emotion analysis dictionary
+        """
+        
+        # Build context-aware prompt
+        energy_level = "high" if audio_features["energy"] > 0.02 else "low"
+        tempo_info = f"tempo of {audio_features['tempo']} BPM"
+        
+        system_prompt = """You are an expert voice emotion analyst. Analyze the emotion in spoken text considering both the words and audio characteristics.
+
+Classify the emotion into EXACTLY one of these categories:
+- anger
+- disgust
+- fear
+- happiness
+- neutral
+- sadness
+- surprise
+
+Respond in EXACTLY this JSON format:
+{
+  "emotion": "one of the 7 emotions above",
+  "confidence": 0-100,
+  "reasoning": "brief explanation",
+  "secondary_emotions": {
+    "emotion_name": confidence_score
+  }
+}"""
+
+        user_prompt = f"""Analyze the emotion in this spoken text:
+
+Text: "{transcript}"
+
+Audio characteristics:
+- Energy level: {energy_level}
+- Speech tempo: {tempo_info}
+- Spectral characteristics: {audio_features['spectral_centroid']:.0f} Hz
+
+What emotion is being expressed?"""
+
+        try:
+            response = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": self.model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": 300,
+                    "response_format": {"type": "json_object"}
+                },
+                timeout=30
+            )
+            
+            response.raise_for_status()
+            result = response.json()
+            
+            # Parse response
+            import json
+            content = result["choices"][0]["message"]["content"]
+            parsed = json.loads(content)
+            
+            # Normalize emotion name
+            emotion = parsed.get("emotion", "neutral").lower()
+            confidence = float(parsed.get("confidence", 50)) / 100
+            secondary = parsed.get("secondary_emotions", {})
+            
+            # Build all_emotions dict
+            all_emotions = {emotion: confidence}
+            for emo, score in secondary.items():
+                emo_lower = emo.lower()
+                if emo_lower in self.emotion_labels:
+                    all_emotions[emo_lower] = float(score) / 100 if score > 1 else float(score)
+            
+            # Ensure all emotions are represented
+            for emo_key in self.emotion_labels.keys():
+                if emo_key not in all_emotions:
+                    all_emotions[emo_key] = 0.01
+            
+            # Normalize to sum to 1
+            total = sum(all_emotions.values())
+            all_emotions = {k: v/total for k, v in all_emotions.items()}
+            
+            # Sort for top 3
+            sorted_emotions = sorted(
+                all_emotions.items(),
+                key=lambda x: x[1],
+                reverse=True
+            )
+            
+            return {
+                "dominant": emotion,
+                "confidence": round(confidence, 4),
+                "all_emotions": {k: round(v, 4) for k, v in all_emotions.items()},
+                "top_3": [
+                    {
+                        "emotion": emo,
+                        "confidence": round(score, 4)
+                    }
+                    for emo, score in sorted_emotions[:3]
+                ]
+            }
+            
+        except Exception as e:
+            print(f"⚠️  Emotion analysis error: {e}")
+            return {
+                "dominant": "neutral",
+                "confidence": 0.5,
+                "all_emotions": {"neutral": 1.0},
+                "top_3": [{"emotion": "neutral", "confidence": 1.0}]
             }
     
     def _extract_audio_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, float]:
@@ -383,7 +423,7 @@ class VoiceAnalyzer:
         Returns:
             Interpretation string
         """
-        emoji = self.emotion_emoji.get(emotion, "")
+        emoji = self.emotion_emoji.get(emotion.lower(), "")
         
         if confidence >= 0.8:
             level = "strong"
@@ -398,33 +438,3 @@ class VoiceAnalyzer:
 def get_voice_analyzer() -> VoiceAnalyzer:
     """Factory function to get VoiceAnalyzer instance"""
     return VoiceAnalyzer()
-
-
-# ============================================
-# EXAMPLE USAGE
-# ============================================
-
-if __name__ == "__main__":
-    import json
-    import sys
-    
-    # Initialize analyzer
-    analyzer = VoiceAnalyzer()
-    
-    if len(sys.argv) > 1:
-        audio_path = sys.argv[1]
-        
-        # Analyze audio
-        result = analyzer.analyze_audio(audio_path)
-        
-        # Print result
-        print(json.dumps(result, indent=2))
-        
-        # If successful, print interpretation
-        if result["status"] == "success":
-            emotion = result["emotion"]["dominant"]
-            confidence = result["emotion"]["confidence"]
-            interpretation = analyzer.get_emotion_interpretation(emotion, confidence)
-            print(f"\n{interpretation}")
-    else:
-        print("Usage: python voice_analyzer.py <audio_file>")
