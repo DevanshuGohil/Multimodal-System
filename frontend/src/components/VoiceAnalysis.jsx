@@ -169,11 +169,11 @@ const VoiceAnalysis = () => {
             animate={{ opacity: 1, y: 0 }}
             className="mt-8 space-y-6"
           >
-            <div className={`bg-gradient-to-r ${getEmotionColor(result.emotion)} p-6 rounded-xl`}>
+            <div className={`bg-gradient-to-r ${getEmotionColor(result.emotion?.dominant)} p-6 rounded-xl`}>
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h3 className="text-3xl font-bold text-white mb-1">
-                    {result.emotion}
+                  <h3 className="text-3xl font-bold text-white mb-1 capitalize">
+                    {result.emotion?.dominant || 'Unknown'}
                   </h3>
                   <p className="text-white/80">Detected Emotion</p>
                 </div>
@@ -182,12 +182,14 @@ const VoiceAnalysis = () => {
               <div className="bg-white/20 rounded-lg p-4">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-white font-medium">Confidence</span>
-                  <span className="text-white font-bold">{result.confidence}%</span>
+                  <span className="text-white font-bold">
+                    {result.emotion ? (result.emotion.confidence * 100).toFixed(1) : '0'}%
+                  </span>
                 </div>
                 <div className="w-full bg-white/30 rounded-full h-3">
                   <motion.div
                     initial={{ width: 0 }}
-                    animate={{ width: `${result.confidence}%` }}
+                    animate={{ width: `${result.emotion ? result.emotion.confidence * 100 : 0}%` }}
                     transition={{ duration: 1, ease: "easeOut" }}
                     className="bg-white h-3 rounded-full"
                   />
@@ -195,23 +197,38 @@ const VoiceAnalysis = () => {
               </div>
             </div>
 
+            {/* Transcription */}
+            {result.transcription && result.transcription !== "No transcription available" && (
+              <div className="bg-white/5 rounded-xl p-6 border border-white/10">
+                <h4 className="text-lg font-semibold mb-3 text-gray-200">Transcription</h4>
+                <div className="bg-black/30 p-4 rounded-lg border border-white/10">
+                  <p className="text-gray-300 whitespace-pre-line">{result.transcription}</p>
+                </div>
+                {result.transcription_status === 'error' && (
+                  <p className="text-sm text-yellow-400 mt-2">
+                    Note: Transcription may not be 100% accurate
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* All Emotions Breakdown */}
-            {result.all_emotions && (
+            {result.emotion?.all_emotions && (
               <div className="bg-white/5 rounded-xl p-6 border border-white/10">
                 <h4 className="text-lg font-semibold mb-4 text-gray-200">Emotion Breakdown</h4>
                 <div className="space-y-3">
-                  {Object.entries(result.all_emotions)
+                  {Object.entries(result.emotion.all_emotions)
                     .sort(([, a], [, b]) => b - a)
                     .map(([emotion, score]) => (
                       <div key={emotion}>
                         <div className="flex justify-between items-center mb-1">
                           <span className="text-gray-300 capitalize">{emotion}</span>
-                          <span className="text-gray-400 text-sm">{score}%</span>
+                          <span className="text-gray-400 text-sm">{(score * 100).toFixed(1)}%</span>
                         </div>
                         <div className="w-full bg-white/10 rounded-full h-2">
                           <motion.div
                             initial={{ width: 0 }}
-                            animate={{ width: `${score}%` }}
+                            animate={{ width: `${score * 100}%` }}
                             transition={{ duration: 0.8, delay: 0.2 }}
                             className="bg-green-400 h-2 rounded-full"
                           />
@@ -223,11 +240,11 @@ const VoiceAnalysis = () => {
             )}
 
             {/* Audio Features */}
-            {result.audio_features && !result.audio_features.error && (
+            {result.audio_features && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-white/5 rounded-xl p-4 border border-white/10">
                   <p className="text-gray-400 text-sm mb-1">Duration</p>
-                  <p className="text-2xl font-bold text-white">{result.duration}s</p>
+                  <p className="text-2xl font-bold text-white">{result.audio_features.duration_seconds}s</p>
                 </div>
                 <div className="bg-white/5 rounded-xl p-4 border border-white/10">
                   <p className="text-gray-400 text-sm mb-1">Energy Level</p>
@@ -238,8 +255,8 @@ const VoiceAnalysis = () => {
                   <p className="text-2xl font-bold text-white">{result.audio_features.tempo} BPM</p>
                 </div>
                 <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-                  <p className="text-gray-400 text-sm mb-1">Sample Rate</p>
-                  <p className="text-2xl font-bold text-white">{result.audio_features.sample_rate} Hz</p>
+                  <p className="text-gray-400 text-sm mb-1">Spectral Centroid</p>
+                  <p className="text-2xl font-bold text-white">{result.audio_features.spectral_centroid}</p>
                 </div>
               </div>
             )}
@@ -247,8 +264,9 @@ const VoiceAnalysis = () => {
             <div className="bg-white/5 rounded-xl p-6 border border-white/10">
               <h4 className="text-lg font-semibold mb-3 text-gray-200">Model Information</h4>
               <div className="space-y-2 text-gray-300">
-                <p><span className="font-medium">Model:</span> {result.model}</p>
-                <p className="text-sm text-gray-400 mt-4">{result.analysis}</p>
+                <p><span className="font-medium">Model:</span> {result.metadata?.model || 'Wav2Vec2-XLSR'}</p>
+                <p><span className="font-medium">Device:</span> {result.metadata?.device || 'CPU'}</p>
+                <p className="text-sm text-gray-400 mt-2">Analyzed file: {result.metadata?.file_name || 'Unknown'}</p>
               </div>
             </div>
           </motion.div>

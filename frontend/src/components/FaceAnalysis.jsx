@@ -78,7 +78,7 @@ const FaceAnalysis = () => {
         <h2 className="text-3xl font-bold mb-6 bg-gradient-to-r from-orange-400 to-red-400 bg-clip-text text-transparent">
           Face Analysis with DeepFace
         </h2>
-        
+
         <div
           onDrop={handleDrop}
           onDragOver={handleDragOver}
@@ -93,7 +93,7 @@ const FaceAnalysis = () => {
             onChange={handleFileChange}
             className="hidden"
           />
-          
+
           {preview ? (
             <div className="space-y-4">
               <img
@@ -181,7 +181,7 @@ const FaceAnalysis = () => {
                     Face {face.face_number}
                   </h4>
                 )}
-                
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Age */}
                   <div className="bg-white/5 rounded-lg p-4">
@@ -198,18 +198,22 @@ const FaceAnalysis = () => {
                       <User className="w-5 h-5 text-orange-400" />
                       <h5 className="font-semibold text-gray-200">Gender</h5>
                     </div>
-                    <p className="text-2xl font-bold text-white mb-2">
-                      {face.gender.prediction}
+                    <p className="text-3xl font-bold text-white mb-2">
+                      {typeof face.gender === 'object' ? face.gender.prediction : face.gender}
                     </p>
-                    <div className="w-full bg-white/20 rounded-full h-2">
-                      <div
-                        style={{ width: `${face.gender.confidence}%` }}
-                        className="bg-orange-400 h-2 rounded-full"
-                      />
-                    </div>
-                    <p className="text-sm text-gray-400 mt-1">
-                      {face.gender.confidence}% confidence
-                    </p>
+                    {face.gender?.confidence && (
+                      <>
+                        <div className="w-full bg-white/20 rounded-full h-2">
+                          <div
+                            style={{ width: `${face.gender.confidence}%` }}
+                            className="bg-orange-400 h-2 rounded-full"
+                          />
+                        </div>
+                        <p className="text-sm text-gray-400 mt-1">
+                          {face.gender.confidence}% confidence
+                        </p>
+                      </>
+                    )}
                   </div>
 
                   {/* Emotion */}
@@ -228,29 +232,10 @@ const FaceAnalysis = () => {
                       />
                     </div>
                     <p className="text-sm text-gray-400 mt-1">
-                      {face.emotion.confidence}% confidence
+                      {face.emotion.confidence ? `${Math.round(face.emotion.confidence * 100)}% confidence` : 'Confidence not available'}
                     </p>
                   </div>
 
-                  {/* Race */}
-                  <div className="bg-white/5 rounded-lg p-4">
-                    <div className="flex items-center gap-3 mb-3">
-                      <User className="w-5 h-5 text-orange-400" />
-                      <h5 className="font-semibold text-gray-200">Ethnicity</h5>
-                    </div>
-                    <p className="text-2xl font-bold text-white mb-2">
-                      {face.race.prediction}
-                    </p>
-                    <div className="w-full bg-white/20 rounded-full h-2">
-                      <div
-                        style={{ width: `${face.race.confidence}%` }}
-                        className="bg-orange-400 h-2 rounded-full"
-                      />
-                    </div>
-                    <p className="text-sm text-gray-400 mt-1">
-                      {face.race.confidence}% confidence
-                    </p>
-                  </div>
                 </div>
               </motion.div>
             ))}

@@ -24,6 +24,8 @@ yarn-error.log*
 # Environment variables
 .env
 .env.local
+.env.*
+!.env.example
 
 # IDE
 .idea/
@@ -42,11 +44,43 @@ yarn-error.log*
 *.gz
 *.zip
 *.7z
+*.pt
+*.bin
+*.h5
+*.pth
 
 # Frontend build artifacts
 frontend/build/
 frontend/.next/
 frontend/out/
+frontend/node_modules/
+
+# Local development
+.docker/
+.dockerignore
+.git
+.gitignore
+.gitattributes
+*.md
+LICENSE
+README*
+
+# Docker build context
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Logs and databases
+*.log
+*.sql
+*.sqlite
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Virtual environment
+/venv
 
 # Logs
 logs/

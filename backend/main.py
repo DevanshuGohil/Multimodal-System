@@ -1,42 +1,61 @@
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
-import uvicorn
-from typing import Optional, Dict, Any, List, Union, AsyncGenerator
 import os
 import tempfile
 import shutil
-import asyncio
-import json
-import uuid
+import uvicorn
+import numpy as np
+from typing import Optional, Dict, Any, List, Union, AsyncGenerator
 from contextlib import asynccontextmanager
-from fastapi.concurrency import run_in_threadpool
-
-# In-memory storage for progress updates (in production, use a proper message broker like Redis)
-progress_store = {}
-
-def update_progress(analysis_id: str, status: str, message: str, percentage: int, step: int):
-    """Update progress for a specific analysis"""
-    progress_store[analysis_id] = {
-        'status': status,
-        'message': message,
-        'percentage': percentage,
-        'step': step
-    }
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 # Suppress tokenizers parallelism warning
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from models.sentiment_analyzer import SentimentAnalyzer
 from models.text_summarizer import TextSummarizer
-from models.face_analyzer import FaceAnalyzer
-from models.voice_classifier import VoiceClassifier
+from models.voice_classifier import VoiceAnalyzer as VoiceClassifier
 from models.video_analyzer import VideoAnalyzer
+from models.face_analyzer import FaceAnalyzer
 
+# Global variables
+sentiment_analyzer = None
+text_summarizer = None
+voice_classifier = None
+video_analyzer = None
+face_analyzer = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """
+    Handle application lifespan events (startup and shutdown).
+    """
+    global sentiment_analyzer, text_summarizer, voice_classifier, video_analyzer, face_analyzer
+    
+    # Startup: Initialize models
+    print("Starting up...")
+    sentiment_analyzer = SentimentAnalyzer()
+    text_summarizer = TextSummarizer()
+    voice_classifier = VoiceClassifier()
+    video_analyzer = VideoAnalyzer(
+        groq_api_key=os.getenv("GROQ_API_KEY"),
+        facepp_api_key=os.getenv("FACEPP_API_KEY"),
+        facepp_api_secret=os.getenv("FACEPP_API_SECRET"),
+        huggingface_api_key=os.getenv("HUGGING_FACE_API_KEY")
+    )
+    face_analyzer = FaceAnalyzer()
+    
+    yield  # This is where the application runs
+    
+    # Shutdown: Clean up resources if needed
+    print("Shutting down...")
+
+# Initialize FastAPI app with lifespan management
 app = FastAPI(
     title="AI Multi-Modal Analysis API",
     description="Dynamic AI-powered analysis for text, images, voice, and video using transformer models",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # CORS middleware - Allow frontend origins
@@ -62,12 +81,20 @@ app.add_middleware(
     allow_origin_regex=r"https://.*\.railway\.app"
 )
 
-# Initialize models (lazy loading)
-sentiment_analyzer = None
-text_summarizer = None
-face_analyzer = None
-voice_classifier = None
-video_analyzer = None
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    # Startup: Initialize models
+    print("Starting up...")
+    get_sentiment_analyzer()
+    get_text_summarizer()
+    get_voice_classifier()
+    get_video_analyzer()
+    get_face_analyzer()
+    
+    yield  # This is where the application runs
+    
+    # Shutdown: Clean up resources if needed
+    print("Shutting down...")
 
 
 def get_sentiment_analyzer():
@@ -92,18 +119,21 @@ def get_face_analyzer():
 
 
 def get_voice_classifier():
-    global voice_classifier
-    if voice_classifier is None:
-        voice_classifier = VoiceClassifier()
-    return voice_classifier
+    if not hasattr(get_voice_classifier, 'instance'):
+        get_voice_classifier.instance = VoiceClassifier()
+    return get_voice_classifier.instance
 
 
 def get_video_analyzer():
     global video_analyzer
     if video_analyzer is None:
-        video_analyzer = VideoAnalyzer()
+        video_analyzer = VideoAnalyzer(
+            groq_api_key=os.getenv("GROQ_API_KEY"),
+            facepp_api_key=os.getenv("FACEPP_API_KEY"),
+            facepp_api_secret=os.getenv("FACEPP_API_SECRET"),
+            huggingface_api_key=os.getenv("HUGGING_FACE_API_KEY")
+        )
     return video_analyzer
-
 
 @app.get("/")
 async def root():
@@ -112,9 +142,9 @@ async def root():
         "endpoints": {
             "sentiment": "/api/sentiment",
             "summarize": "/api/summarize",
-            "face-analysis": "/api/face-analysis",
             "voice-analysis": "/api/voice-analysis",
-            "video-analysis": "/api/video-analysis"
+            "video-analysis": "/api/video-analysis",
+            "face-analysis": "/api/face-analysis"
         }
     }
 
@@ -191,7 +221,7 @@ async def analyze_voice(file: UploadFile = File(...)):
             temp_file_path = temp_file.name
         
         analyzer = get_voice_classifier()
-        result = analyzer.analyze(temp_file_path)
+        result = analyzer.analyze_audio(temp_file_path)
         return JSONResponse(content=result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -221,127 +251,84 @@ def convert_numpy_types(obj):
         return [convert_numpy_types(item) for item in obj]
     return obj
 
-async def analyze_video_file(file: UploadFile, analysis_id: str):
-    """Process video file and update progress"""
+async def analyze_video_file(file: UploadFile):
+    """Process video file and return analysis results"""
     temp_file_path = None
     try:
+        print(f"Starting video analysis for file: {file.filename}")
+        
+        # Validate file type
+        if not file.filename.lower().endswith(('.mp4', '.mov', '.avi', '.mkv')):
+            raise HTTPException(status_code=400, detail="Invalid file type. Supported formats: .mp4, .mov, .avi, .mkv")
+
         # Create a temporary file to store the uploaded video
         with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
+            print(f"Created temporary file: {temp_file.name}")
             shutil.copyfileobj(file.file, temp_file)
             temp_file_path = temp_file.name
+            print(f"Copied video data to {temp_file_path}, size: {os.path.getsize(temp_file_path)} bytes")
 
-        # Get the video analyzer
-        analyzer = get_video_analyzer()
-
-        # Simulate processing steps (replace with actual processing)
-        steps = [
-            ("processing", "Processing video...", 20, 1),
-            ("processing_audio", "Processing audio...", 40, 2),
-            ("analyzing_faces", "Analyzing facial expressions...", 60, 3),
-            ("finalizing", "Finalizing results...", 80, 4),
-            ("completed", "Analysis complete!", 100, 5)
-        ]
-
-        for status, message, percentage, step in steps:
-            update_progress(analysis_id, status, message, percentage, step)
-            await asyncio.sleep(2)  # Simulate processing time
-
-        # Process the video
-        result = analyzer.analyze_video(temp_file_path)
-        
-        # Convert numpy types to native Python types for JSON serialization
-        result = convert_numpy_types(result)
-        
-        # Store the final result
-        if analysis_id in progress_store:
-            progress_store[analysis_id]['result'] = result
+        # Get the video analyzer and process the video
+        print("Initializing video analyzer...")
+        try:
+            analyzer = get_video_analyzer()
+            print("Analyzing video...")
+            result = analyzer.analyze_video(temp_file_path, use_cache=False)  # Disable cache for debugging
+            print("Video analysis completed successfully")
             
-        return result
+            # Check if the analysis was successful
+            if result.get('status') == 'error':
+                error_msg = result.get('error', 'Video analysis failed')
+                print(f"Analysis error: {error_msg}")
+                raise HTTPException(status_code=400, detail=error_msg)
+                
+            return result
+            
+        except Exception as analyzer_error:
+            print(f"Error during video analysis: {str(analyzer_error)}")
+            if hasattr(analyzer_error, 'response') and hasattr(analyzer_error.response, 'text'):
+                print(f"API Error response: {analyzer_error.response.text}")
+            raise
 
-    except Exception as e:
-        update_progress(analysis_id, "error", f"Analysis failed: {str(e)}", 100, 5)
+    except HTTPException as http_error:
+        print(f"HTTP Error: {http_error.detail}")
         raise
+        
+    except Exception as e:
+        error_msg = f"Video analysis failed: {str(e)}"
+        print(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
+        
     finally:
         # Clean up the temporary file if it exists
         if temp_file_path and os.path.exists(temp_file_path):
             try:
                 os.unlink(temp_file_path)
+                print(f"Cleaned up temporary file: {temp_file_path}")
             except Exception as e:
-                print(f"Warning: Could not delete temporary file: {e}")
+                print(f"Warning: Could not delete temporary file {temp_file_path}: {e}")
 
 @app.post("/api/video-analysis")
 async def analyze_video(file: UploadFile = File(...)):
     """
-    Start video analysis and return an analysis ID
+    Analyze video and return results
     """
-    analysis_id = str(uuid.uuid4())
-    
-    # Initialize progress
-    update_progress(analysis_id, "queued", "Waiting to start analysis...", 0, 0)
-    
-    # Start the analysis in the background
-    asyncio.create_task(analyze_video_file(file, analysis_id))
-    
-    return {
-        "status": "started",
-        "analysis_id": analysis_id,
-        "message": "Analysis started. Use the analysis_id to track progress.",
-        "progress_url": f"/api/video-analysis/progress/{analysis_id}"
-    }
-
-@app.get("/api/video-analysis/progress/{analysis_id}")
-async def video_progress(analysis_id: str, request: Request):
-    """SSE endpoint for video analysis progress"""
-    return StreamingResponse(
-        event_generator(analysis_id),
-        media_type="text/event-stream",
-        headers={
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'X-Accel-Buffering': 'no'  # Disable buffering for nginx
-        }
-    )
-
-async def event_generator(analysis_id: str) -> AsyncGenerator[str, None]:
-    """Generate server-sent events for progress updates"""
-    last_progress = {}
-    
     try:
-        while True:
-            # Get current progress
-            current_progress = progress_store.get(analysis_id, {
-                'status': 'queued',
-                'message': 'Waiting to start analysis...',
-                'percentage': 0,
-                'step': 0,
-                'total_steps': 5
-            })
+        # Validate file type
+        if not file.filename.lower().endswith(('.mp4', '.mov', '.avi', '.mkv')):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid file format. Supported formats: MP4, MOV, AVI, MKV"
+            )
             
-            # Only send updates if something changed
-            if current_progress != last_progress:
-                last_progress = current_progress.copy()
-                yield f"data: {json.dumps(current_progress)}\n\n"
-                
-                # If analysis is complete, include the result in the final message
-                if current_progress.get('status') == 'completed' and 'result' in progress_store.get(analysis_id, {}):
-                    final_result = {
-                        'status': 'completed',
-                        'message': 'Analysis complete!',
-                        'percentage': 100,
-                        'step': 5,
-                        'total_steps': 5,
-                        'result': progress_store[analysis_id]['result']
-                    }
-                    yield f"data: {json.dumps(final_result)}\n\n"
-                    break
-                    
-            await asyncio.sleep(1)  # Check for updates every second
-            
-    except asyncio.CancelledError:
-        print(f"Client disconnected from progress stream for {analysis_id}")
+        # Process the video and return results directly
+        result = await analyze_video_file(file)
+        return result
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Error in event generator: {str(e)}")
-        yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+        raise HTTPException(status_code=500, detail=f"Failed to process video: {str(e)}")
 
 
 if __name__ == "__main__":

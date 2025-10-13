@@ -1,27 +1,26 @@
-# Core FastAPI dependencies
+# Core FastAPI
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 python-multipart>=0.0.6
+python-dotenv>=1.0.0
+requests>=2.31.0
 
-# ML/AI Libraries
-transformers>=4.35.0
-torch>=2.1.0
-torchaudio>=2.1.0
-deepface>=0.0.79
-openai-whisper>=20231117
-
-# Audio/Video Processing
-librosa>=0.10.1
-moviepy>=1.0.3
+# Video/Audio Processing (if still needed for basic operations)
 opencv-python-headless>=4.8.1.78
-soundfile>=0.12.1
+moviepy>=1.0.3
 ffmpeg-python>=0.2.0
+yt-dlp>=2023.7.6
 
 # Data Processing
 numpy>=1.24.0
-scipy>=1.11.0
-Pillow>=10.1.0
 
-# TensorFlow (required by DeepFace)
-tensorflow>=2.15.0
-tf-keras>=2.15.0
+# API Clients
+groq>=0.4.0
+
+# Lightweight audio processing (if still needed)
+pydub>=0.25.1
+SpeechRecognition>=3.10.0
+
+# Development (optional)
+pytest>=7.4.0
+httpx>=0.24.0

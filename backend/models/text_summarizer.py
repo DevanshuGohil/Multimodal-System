@@ -1,43 +1,46 @@
-from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
-import torch
+import os
 import re
+from typing import Dict, Optional
+import groq
+from groq import Groq
+
 
 
 class TextSummarizer:
     """
-    Text summarization using BART transformer model with batch processing for long texts
+    Text summarization using Groq API for fast and efficient summarization
     """
     
-    def __init__(self):
-        print("Loading text summarization model...")
-        # Using BART fine-tuned on CNN/DailyMail dataset
-        model_name = "facebook/bart-large-cnn"
+    def __init__(self, api_key: Optional[str] = None):
+        print("Initializing Groq text summarizer...")
         
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+        # Get API key from environment if not provided
+        self.api_key = api_key or os.getenv("GROQ_API_KEY")
+        if not self.api_key:
+            raise ValueError(
+                "Groq API key not provided. Set GROQ_API_KEY environment variable or pass it to the constructor."
+            )
         
-        # Create pipeline for easier inference
-        self.pipeline = pipeline(
-            "summarization",
-            model=self.model,
-            tokenizer=self.tokenizer,
-            device=0 if torch.cuda.is_available() else -1
-        )
+        # Initialize Groq client
+        self.client = Groq(api_key=self.api_key)
         
-        # Configuration for batch processing
-        self.chunk_size = 8000  # Characters per chunk
-        self.overlap = 500  # Overlap between chunks to maintain context
+        # Model configuration - Using the recommended model
+        self.model = "llama-3.3-70b-versatile"  # Groq's Mixtral model with 32k context length (FP16 precision)
         
-        print("Text summarization model loaded successfully!")
+        # Configuration for chunking long texts
+        self.chunk_size = 30000  # Characters per chunk (well under the 32k token limit)
+        self.overlap = 1000  # Overlap between chunks to maintain context
+        
+        print("Groq text summarizer initialized successfully!")
     
-    def summarize(self, text: str, max_length: int = 130, min_length: int = 30) -> dict:
+    def summarize(self, text: str, max_length: int = 300, min_length: int = 100) -> dict:
         """
-        Summarize input text
+        Summarize input text using Groq API
         
         Args:
             text: Input text to summarize
-            max_length: Maximum length of summary
-            min_length: Minimum length of summary
+            max_length: Approximate maximum length of summary (in words, default: 300)
+            min_length: Approximate minimum length of summary (in words, default: 100)
             
         Returns:
             Dictionary with summary and metadata
@@ -45,66 +48,139 @@ class TextSummarizer:
         if not text or len(text.strip()) == 0:
             return {
                 "error": "Empty text provided",
-                "summary": None
+                "summary": ""
             }
         
-        # Check if text is too short to summarize
-        word_count = len(text.split())
-        if word_count < 50:
+        # Clean and prepare the text
+        text = text.strip()
+        original_word_count = len(text.split())
+        
+        # If text is very short, return as is
+        if original_word_count < 30:
             return {
-                "error": "Text too short to summarize (minimum 50 words)",
-                "summary": None,
-                "original_length": word_count
+                "summary": text,
+                "original_length": original_word_count,
+                "summary_length": original_word_count,
+                "compression_ratio": "0%",
+                "model": self.model,
+                "analysis": "Text too short for meaningful summarization"
             }
-        
-        # Store original length for metrics
-        original_text_length = len(text)
-        original_word_count = word_count
         
         try:
-            # Use batch summarization for long texts
-            if len(text) > 10000:
+            # For very long texts, use chunking
+            if len(text) > self.chunk_size:
                 summary = self._batch_summarize(text, max_length, min_length)
-                is_batched = True
             else:
-                # Single summarization for shorter texts
-                result = self.pipeline(
-                    text,
-                    max_length=max_length,
-                    min_length=min_length,
-                    do_sample=False,
-                    truncation=True
-                )[0]
-                summary = result['summary_text']
-                is_batched = False
+                # For shorter texts, summarize in one go
+                prompt = self._create_summary_prompt(text, max_length, min_length)
+                summary = self._call_groq_api(prompt)
+            
+            # Clean up the summary
+            summary = self._clean_summary(summary)
+            summary_word_count = len(summary.split())
             
             # Calculate compression ratio
-            summary_words = len(summary.split())
-            compression_ratio = round((1 - summary_words / original_word_count) * 100, 1)
+            compression_ratio = round((1 - (summary_word_count / original_word_count)) * 100, 2) if original_word_count > 0 else 0
             
-            result_dict = {
+            return {
                 "summary": summary,
                 "original_length": original_word_count,
-                "summary_length": summary_words,
+                "summary_length": summary_word_count,
                 "compression_ratio": f"{compression_ratio}%",
-                "model": "BART-Large-CNN (Transformer)",
-                "analysis": f"Summarized {original_word_count} words into {summary_words} words ({compression_ratio}% compression)"
+                "model": self.model,
+                "analysis": f"Summarized {original_word_count} words into {summary_word_count} words ({compression_ratio}% compression)"
             }
-            
-            # Add batch processing info if applicable
-            if is_batched:
-                result_dict["batch_processed"] = True
-                result_dict["original_chars"] = original_text_length
-                result_dict["analysis"] += " using batch processing for long text"
-            
-            return result_dict
             
         except Exception as e:
             return {
-                "error": f"Summarization failed: {str(e)}",
-                "summary": None
+                "error": f"Error generating summary: {str(e)}",
+                "summary": ""
             }
     
+    def _create_summary_prompt(self, text: str, max_length: int, min_length: int) -> str:
+        """
+        Create a prompt for the Groq API to generate a summary
+        
+        Args:
+            text: Text to summarize
+            max_length: Approximate max length of summary in words
+            min_length: Approximate min length of summary in words
+            
+        Returns:
+            Formatted prompt string
+        """
+        return f"""Please provide a concise and coherent summary of the following text. 
+The summary should be between {min_length} and {max_length} words, capturing the main points and key details.
+
+Text to summarize:
+{text}
+
+Summary:"""
+
+    def _call_groq_api(self, prompt: str) -> str:
+        """
+        Call the Groq API to generate a summary
+        
+        Args:
+            prompt: The prompt to send to the API
+            
+        Returns:
+            Generated summary text
+        """
+        try:
+            completion = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful AI assistant that creates concise and accurate summaries of text."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0.3,  # Lower temperature for more deterministic outputs
+                max_tokens=4000,  # Max tokens for the response
+                top_p=1,
+                frequency_penalty=0,
+                presence_penalty=0,
+                stop=None
+            )
+            
+            return completion.choices[0].message.content.strip()
+            
+        except Exception as e:
+            error_msg = str(e)
+            if "rate_limit_exceeded" in error_msg.lower():
+                raise Exception("API rate limit exceeded. Please try again later.")
+            elif "authentication" in error_msg.lower():
+                raise Exception("Authentication failed. Please check your API key.")
+            else:
+                raise Exception(f"API error: {error_msg}")
+
+    def _clean_summary(self, summary: str) -> str:
+        """
+        Clean up the generated summary
+        
+        Args:
+            summary: Raw summary text
+            
+        Returns:
+            Cleaned summary text
+        """
+        # Remove any leading/trailing whitespace
+        summary = summary.strip()
+        
+        # Remove any quotation marks that might be around the summary
+        summary = summary.strip('"\'')
+        
+        # Ensure the summary ends with proper punctuation
+        if summary and summary[-1] not in {'.', '!', '?'}:
+            summary += '.'
+            
+        return summary
+
     def _split_into_chunks(self, text: str) -> list:
         """
         Split long text into overlapping chunks for batch processing
@@ -143,8 +219,8 @@ class TextSummarizer:
         
         Args:
             text: Long input text
-            max_length: Maximum length per summary
-            min_length: Minimum length per summary
+            max_length: Approximate maximum length per summary in words
+            min_length: Approximate minimum length per summary in words
             
         Returns:
             Combined summary string
@@ -152,41 +228,46 @@ class TextSummarizer:
         # Split text into chunks
         chunks = self._split_into_chunks(text)
         
+        # Adjust summary length for chunks (shorter than final target)
+        chunk_max_length = max(min_length, max_length // 2)
+        chunk_min_length = max(min_length // 2, 30)  # Ensure minimum length
+        
         # Summarize each chunk
         chunk_summaries = []
         for i, chunk in enumerate(chunks):
             # Skip very short chunks
-            if len(chunk.split()) < 50:
+            if len(chunk.split()) < 30:  # Lower threshold for Groq
                 continue
                 
             try:
-                result = self.pipeline(
-                    chunk,
-                    max_length=max_length,
-                    min_length=min_length // 2,  # Shorter min for chunks
-                    do_sample=False,
-                    truncation=True
-                )[0]
-                chunk_summaries.append(result['summary_text'])
+                prompt = self._create_summary_prompt(chunk, chunk_max_length, chunk_min_length)
+                summary = self._call_groq_api(prompt)
+                chunk_summaries.append(self._clean_summary(summary))
+                
+                # Print progress
+                print(f"Processed chunk {i+1}/{len(chunks)}")
+                
             except Exception as e:
                 print(f"Warning: Failed to summarize chunk {i+1}: {str(e)}")
+                # Include the chunk text as fallback if summarization fails
+                chunk_summaries.append(chunk[:500] + "...")
                 continue
         
         # Combine chunk summaries
-        combined_summary = " ".join(chunk_summaries)
+        combined_summary = "\n\n".join(chunk_summaries)
         
         # If combined summary is still very long, summarize it again
-        if len(combined_summary.split()) > max_length * 2:
+        if len(combined_summary.split()) > max_length * 1.5:
             try:
-                final_result = self.pipeline(
-                    combined_summary,
-                    max_length=max_length * 2,
-                    min_length=min_length,
-                    do_sample=False,
-                    truncation=True
-                )[0]
-                return final_result['summary_text']
-            except Exception:
+                final_prompt = self._create_summary_prompt(
+                    combined_summary, 
+                    max_length, 
+                    min_length
+                )
+                final_summary = self._call_groq_api(final_prompt)
+                return self._clean_summary(final_summary)
+            except Exception as e:
+                print(f"Warning: Failed to summarize combined chunks: {str(e)}")
                 # If final summarization fails, return combined summary
                 return combined_summary
         
