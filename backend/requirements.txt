@@ -13,6 +13,11 @@ yt-dlp>=2023.7.6
 
 # Data Processing
 numpy>=1.24.0
+pillow>=10.0.0
+
+# PyTorch and Transformers (for ML models)
+torch>=2.0.0
+transformers>=4.36.2
 
 # API Clients
 groq>=0.4.0
@@ -20,9 +25,6 @@ groq>=0.4.0
 # Lightweight audio processing (if still needed)
 pydub>=0.25.1
 SpeechRecognition>=3.10.0
-
-# Transformers
-transformers>=4.36.2
 
 # Development (optional)
 pytest>=7.4.0
