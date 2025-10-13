@@ -2,18 +2,11 @@
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
     "builder": "nixpacks",
-    "buildCommand": "echo 'Build handled by nixpacks.toml'",
-    "builderOptions": {
-      "maxBuildTime": 1200
-    }
+    "buildCommand": "echo 'Build handled by nixpacks.toml'"
   },
   "deploy": {
-    "startCommand": "cd backend && . /app/venv/bin/activate && uvicorn main:app --host 0.0.0.0 --port $PORT",
+    "startCommand": "bash -c \"cd backend && source /opt/venv/bin/activate && uvicorn main:app --host 0.0.0.0 --port \\$PORT\"",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
-  },
-  "checks": {
-    "enabled": false
-  },
-  "healthcheckPath": "/health"
+  }
 }
