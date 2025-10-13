@@ -17,7 +17,11 @@ pillow>=10.0.0
 
 # PyTorch and Transformers (for ML models)
 torch>=2.0.0
+torchaudio>=2.0.0
 transformers>=4.36.2
+
+# Audio Analysis
+librosa>=0.10.0
 
 # API Clients
 groq>=0.4.0
