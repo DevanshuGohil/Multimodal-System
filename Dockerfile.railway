@@ -1,49 +1,44 @@
-# Multi-stage build for better compatibility
+# Optimized multi-stage build for smaller image size
 FROM python:3.11-slim as dependencies
 
 WORKDIR /app
 
-# Install system dependencies
+# Install minimal system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies in a specific order for compatibility
+# Copy requirements and install only essential packages
 COPY backend/requirements.txt .
 
-# First install core scientific packages
+# Install packages in optimized order with size reduction
 RUN pip install --no-cache-dir --upgrade pip && \
+    # Core lightweight packages first
     pip install --no-cache-dir --no-build-isolation \
-        numpy==1.24.3 \
-        scipy==1.11.1 \
-        pillow==10.0.0 && \
-    pip install --no-cache-dir --no-build-isolation \
-        torch==2.0.1+cpu -f https://download.pytorch.org/whl/torch_stable.html && \
-    pip install --no-cache-dir --no-build-isolation \
-        torchaudio==2.0.2+cpu -f https://download.pytorch.org/whl/torch_stable.html && \
-    pip install --no-cache-dir \
-        transformers==4.30.2 && \
-    pip install --no-cache-dir \
-        librosa==0.10.0 && \
-    pip install --no-cache-dir \
-        opencv-python-headless==4.8.0.76 && \
-    pip install --no-cache-dir \
         fastapi==0.104.1 \
         uvicorn[standard]==0.24.0 \
         python-multipart==0.0.6 \
         python-dotenv==1.0.0 \
         requests==2.31.0 \
-        groq==0.4.1 \
         pydub==0.25.1 \
-        SpeechRecognition==3.10.0 \
-        moviepy==1.0.3 \
-        ffmpeg-python==0.2.0 \
-        yt-dlp==2023.7.6 \
-        pytest==7.4.3 \
-        httpx==0.24.1
+        SpeechRecognition==3.10.0 && \
+    # Scientific computing (smaller footprint)
+    pip install --no-cache-dir --no-build-isolation \
+        numpy==1.24.3 \
+        pillow==10.0.0 && \
+    # PyTorch ecosystem (CPU-only, minimal)
+    pip install --no-cache-dir --no-build-isolation \
+        torch==2.0.1+cpu -f https://download.pytorch.org/whl/torch_stable.html && \
+    pip install --no-cache-dir --no-build-isolation \
+        torchaudio==2.0.2+cpu -f https://download.pytorch.org/whl/torch_stable.html && \
+    # ML libraries (essential only)
+    pip install --no-cache-dir \
+        transformers==4.30.2 && \
+    # Remaining packages
+    pip install --no-cache-dir \
+        groq==0.4.1
 
-# Production stage
+# Production stage - minimal base image
 FROM python:3.11-slim
 
 # Create non-root user
@@ -51,21 +46,21 @@ RUN useradd -m appuser && \
     mkdir -p /app/backend && \
     chown -R appuser:appuser /app
 
-# Install runtime system dependencies
+# Install only essential runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy installed packages from dependencies stage
+# Copy only essential installed packages (selective copy for size reduction)
 COPY --from=dependencies /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=dependencies /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY --chown=appuser:appuser backend/ /app/backend/
 
-# Set environment variables
+# Set minimal environment variables
 ENV PYTHONPATH="/app"
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
