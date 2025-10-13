@@ -1,24 +1,49 @@
-# Stage 1: Build stage
-FROM python:3.11-slim as builder
+# Multi-stage build for better compatibility
+FROM python:3.11-slim as dependencies
 
 WORKDIR /app
 
-# Install build dependencies
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create and activate virtual environment
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-
-# Install Python dependencies
+# Install Python dependencies in a specific order for compatibility
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
 
-# Stage 2: Runtime stage
+# First install core scientific packages
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir --no-build-isolation \
+        numpy==1.24.3 \
+        scipy==1.11.1 \
+        pillow==10.0.0 && \
+    pip install --no-cache-dir --no-build-isolation \
+        torch==2.0.1+cpu -f https://download.pytorch.org/whl/torch_stable.html && \
+    pip install --no-cache-dir --no-build-isolation \
+        torchaudio==2.0.2+cpu -f https://download.pytorch.org/whl/torch_stable.html && \
+    pip install --no-cache-dir \
+        transformers==4.30.2 && \
+    pip install --no-cache-dir \
+        librosa==0.10.0 && \
+    pip install --no-cache-dir \
+        opencv-python-headless==4.8.0.76 && \
+    pip install --no-cache-dir \
+        fastapi==0.104.1 \
+        uvicorn[standard]==0.24.0 \
+        python-multipart==0.0.6 \
+        python-dotenv==1.0.0 \
+        requests==2.31.0 \
+        groq==0.4.1 \
+        pydub==0.25.1 \
+        SpeechRecognition==3.10.0 \
+        moviepy==1.0.3 \
+        ffmpeg-python==0.2.0 \
+        yt-dlp==2023.7.6 \
+        pytest==7.4.3 \
+        httpx==0.24.1
+
+# Production stage
 FROM python:3.11-slim
 
 # Create non-root user
@@ -26,19 +51,21 @@ RUN useradd -m appuser && \
     mkdir -p /app/backend && \
     chown -R appuser:appuser /app
 
-# Install runtime dependencies
+# Install runtime system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy only necessary files from builder
-COPY --from=builder /opt/venv /opt/venv
+# Copy installed packages from dependencies stage
+COPY --from=dependencies /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=dependencies /usr/local/bin /usr/local/bin
+
+# Copy application code
 COPY --chown=appuser:appuser backend/ /app/backend/
 
 # Set environment variables
-ENV PATH="/opt/venv/bin:$PATH"
 ENV PYTHONPATH="/app"
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -55,4 +82,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Command to run the application
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
