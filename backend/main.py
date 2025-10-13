@@ -8,6 +8,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Suppress tokenizers parallelism warning
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -25,6 +29,7 @@ voice_classifier = None
 video_analyzer = None
 face_analyzer = None
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
@@ -33,69 +38,102 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     global sentiment_analyzer, text_summarizer, voice_classifier, video_analyzer, face_analyzer
     
     # Startup: Initialize models
-    print("Starting up...")
-    sentiment_analyzer = SentimentAnalyzer()
-    text_summarizer = TextSummarizer()
-    voice_classifier = VoiceClassifier()
-    video_analyzer = VideoAnalyzer(
-        groq_api_key=os.getenv("GROQ_API_KEY"),
-        facepp_api_key=os.getenv("FACEPP_API_KEY"),
-        facepp_api_secret=os.getenv("FACEPP_API_SECRET"),
-        huggingface_api_key=os.getenv("HUGGING_FACE_API_KEY")
-    )
-    face_analyzer = FaceAnalyzer()
+    print("🚀 Starting up application...")
+    print("📦 Loading models...")
     
-    yield  # This is where the application runs
+    try:
+        sentiment_analyzer = SentimentAnalyzer()
+        print("✅ Sentiment Analyzer loaded")
+        
+        text_summarizer = TextSummarizer()
+        print("✅ Text Summarizer loaded")
+        
+        voice_classifier = VoiceClassifier()
+        print("✅ Voice Classifier loaded")
+        
+        video_analyzer = VideoAnalyzer(
+            groq_api_key=os.getenv("GROQ_API_KEY"),
+            facepp_api_key=os.getenv("FACEPP_API_KEY"),
+            facepp_api_secret=os.getenv("FACEPP_API_SECRET"),
+            huggingface_api_key=os.getenv("HUGGING_FACE_API_KEY")
+        )
+        print("✅ Video Analyzer loaded")
+        
+        face_analyzer = FaceAnalyzer()
+        print("✅ Face Analyzer loaded")
+        
+        print("✅ All models loaded successfully!")
+        
+    except Exception as e:
+        print(f"❌ Error loading models: {e}")
+        raise
     
-    # Shutdown: Clean up resources if needed
-    print("Shutting down...")
+    yield  # Application runs here
+    
+    # Shutdown: Clean up resources
+    print("🛑 Shutting down application...")
 
-# Initialize FastAPI app with lifespan management
+
+# ============================================
+# CREATE FASTAPI APP - MUST BE BEFORE MIDDLEWARE
+# ============================================
+
 app = FastAPI(
     title="AI Multi-Modal Analysis API",
-    description="Dynamic AI-powered analysis for text, images, voice, and video using transformer models",
+    description="Sentiment, Voice, Video, and Face Analysis powered by AI",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,  # CRITICAL: Add lifespan parameter
+    docs_url="/docs",
+    redoc_url="/redoc"
 )
 
-# CORS middleware - Allow frontend origins
+
+# ============================================
+# CORS CONFIGURATION - AFTER APP CREATION
+# ============================================
+
+# Define allowed origins explicitly (wildcards don't work in CORS)
 allowed_origins = [
+    # Local development
     "http://localhost:3000",
     "http://localhost:5173",
-    "https://*.railway.app",
-    "https://*.vercel.app",
-    "https://*.netlify.app",
+    "http://localhost:8000",
+    "https://localhost:3000",
+    "https://localhost:5173",
+    
+    # Production domains
+    "https://multimodal-system.vercel.app",
+    "https://multimodal-system.onrender.com",
+    
+    # Add your specific Vercel preview URLs here as you get them
+    # Example: "https://multimodal-system-git-main-yourname.vercel.app",
 ]
 
-# Get custom origins from environment variable if set
+# Get custom origins from environment variable
 custom_origins = os.environ.get("ALLOWED_ORIGINS", "")
 if custom_origins:
-    allowed_origins.extend(custom_origins.split(","))
+    allowed_origins.extend([origin.strip() for origin in custom_origins.split(",")])
 
+# Remove empty strings and duplicates
+allowed_origins = list(set(filter(None, allowed_origins)))
+
+print(f"🌐 CORS enabled for origins: {allowed_origins}")
+
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
-    allow_origin_regex=r"https://.*\.railway\.app"
+    expose_headers=["*"],
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
 
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    # Startup: Initialize models
-    print("Starting up...")
-    get_sentiment_analyzer()
-    get_text_summarizer()
-    get_voice_classifier()
-    get_video_analyzer()
-    get_face_analyzer()
-    
-    yield  # This is where the application runs
-    
-    # Shutdown: Clean up resources if needed
-    print("Shutting down...")
 
+# ============================================
+# HELPER FUNCTIONS
+# ============================================
 
 def get_sentiment_analyzer():
     global sentiment_analyzer
@@ -119,9 +157,10 @@ def get_face_analyzer():
 
 
 def get_voice_classifier():
-    if not hasattr(get_voice_classifier, 'instance'):
-        get_voice_classifier.instance = VoiceClassifier()
-    return get_voice_classifier.instance
+    global voice_classifier
+    if voice_classifier is None:
+        voice_classifier = VoiceClassifier()
+    return voice_classifier
 
 
 def get_video_analyzer():
@@ -135,35 +174,88 @@ def get_video_analyzer():
         )
     return video_analyzer
 
+
+def convert_numpy_types(obj):
+    """Recursively convert numpy types to native Python types"""
+    if obj is None:
+        return None
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {k: convert_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [convert_numpy_types(item) for item in obj]
+    return obj
+
+
+# ============================================
+# API ENDPOINTS
+# ============================================
+
 @app.get("/")
 async def root():
+    """Root endpoint with API information"""
     return {
         "message": "AI Multi-Modal Analysis API",
+        "version": "1.0.0",
+        "status": "healthy",
         "endpoints": {
             "sentiment": "/api/sentiment",
             "summarize": "/api/summarize",
             "voice-analysis": "/api/voice-analysis",
             "video-analysis": "/api/video-analysis",
-            "face-analysis": "/api/face-analysis"
-        }
+            "face-analysis": "/api/face-analysis",
+            "docs": "/docs",
+            "health": "/health"
+        },
+        "cors_enabled": True,
+        "allowed_origins": len(allowed_origins)
     }
 
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "cors_enabled": True,
+        "models_loaded": {
+            "sentiment": sentiment_analyzer is not None,
+            "summarizer": text_summarizer is not None,
+            "voice": voice_classifier is not None,
+            "video": video_analyzer is not None,
+            "face": face_analyzer is not None
+        }
+    }
+
+
+@app.options("/{full_path:path}")
+async def options_handler(full_path: str):
+    """Handle preflight OPTIONS requests"""
+    return JSONResponse(content={"status": "ok"})
 
 
 @app.post("/api/sentiment")
 async def analyze_sentiment(text: str = Form(...)):
     """
-    Analyze sentiment of text using transformer-based model (DistilBERT)
+    Analyze sentiment of text using transformer-based model
     """
     try:
+        if not text or len(text.strip()) == 0:
+            raise HTTPException(status_code=400, detail="Text cannot be empty")
+        
         analyzer = get_sentiment_analyzer()
         result = analyzer.analyze(text)
         return JSONResponse(content=result)
+    
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Error in sentiment analysis: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -177,10 +269,17 @@ async def summarize_text(
     Summarize text using transformer-based model (BART)
     """
     try:
+        if not text or len(text.strip()) == 0:
+            raise HTTPException(status_code=400, detail="Text cannot be empty")
+        
         summarizer = get_text_summarizer()
         result = summarizer.summarize(text, max_length=max_length, min_length=min_length)
         return JSONResponse(content=result)
+    
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Error in text summarization: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -191,15 +290,29 @@ async def analyze_face(file: UploadFile = File(...)):
     """
     temp_file_path = None
     try:
+        # Validate file type
+        if not file.filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid file format. Supported formats: JPG, JPEG, PNG"
+            )
+        
+        # Save uploaded file
         with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
             shutil.copyfileobj(file.file, temp_file)
             temp_file_path = temp_file.name
         
+        # Analyze
         analyzer = get_face_analyzer()
         result = analyzer.analyze(temp_file_path)
         return JSONResponse(content=result)
+    
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Error in face analysis: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
     finally:
         # Clean up temp file
         if temp_file_path and os.path.exists(temp_file_path):
@@ -216,15 +329,29 @@ async def analyze_voice(file: UploadFile = File(...)):
     """
     temp_file_path = None
     try:
+        # Validate file type
+        if not file.filename.lower().endswith(('.wav', '.mp3', '.m4a', '.flac')):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid file format. Supported formats: WAV, MP3, M4A, FLAC"
+            )
+        
+        # Save uploaded file
         with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_file:
             shutil.copyfileobj(file.file, temp_file)
             temp_file_path = temp_file.name
         
+        # Analyze
         analyzer = get_voice_classifier()
         result = analyzer.analyze_audio(temp_file_path)
         return JSONResponse(content=result)
+    
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Error in voice analysis: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
     finally:
         if temp_file_path and os.path.exists(temp_file_path):
             try:
@@ -233,104 +360,97 @@ async def analyze_voice(file: UploadFile = File(...)):
                 print(f"Warning: Could not delete temporary file: {e}")
 
 
-def convert_numpy_types(obj):
-    """Recursively convert numpy types to native Python types"""
-    import numpy as np
-    
-    if obj is None:
-        return None
-    elif isinstance(obj, np.integer):
-        return int(obj)
-    elif isinstance(obj, np.floating):
-        return float(obj)
-    elif isinstance(obj, np.ndarray):
-        return obj.tolist()
-    elif isinstance(obj, dict):
-        return {k: convert_numpy_types(v) for k, v in obj.items()}
-    elif isinstance(obj, (list, tuple)):
-        return [convert_numpy_types(item) for item in obj]
-    return obj
-
-async def analyze_video_file(file: UploadFile):
-    """Process video file and return analysis results"""
-    temp_file_path = None
-    try:
-        print(f"Starting video analysis for file: {file.filename}")
-        
-        # Validate file type
-        if not file.filename.lower().endswith(('.mp4', '.mov', '.avi', '.mkv')):
-            raise HTTPException(status_code=400, detail="Invalid file type. Supported formats: .mp4, .mov, .avi, .mkv")
-
-        # Create a temporary file to store the uploaded video
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
-            print(f"Created temporary file: {temp_file.name}")
-            shutil.copyfileobj(file.file, temp_file)
-            temp_file_path = temp_file.name
-            print(f"Copied video data to {temp_file_path}, size: {os.path.getsize(temp_file_path)} bytes")
-
-        # Get the video analyzer and process the video
-        print("Initializing video analyzer...")
-        try:
-            analyzer = get_video_analyzer()
-            print("Analyzing video...")
-            result = analyzer.analyze_video(temp_file_path, use_cache=False)  # Disable cache for debugging
-            print("Video analysis completed successfully")
-            
-            # Check if the analysis was successful
-            if result.get('status') == 'error':
-                error_msg = result.get('error', 'Video analysis failed')
-                print(f"Analysis error: {error_msg}")
-                raise HTTPException(status_code=400, detail=error_msg)
-                
-            return result
-            
-        except Exception as analyzer_error:
-            print(f"Error during video analysis: {str(analyzer_error)}")
-            if hasattr(analyzer_error, 'response') and hasattr(analyzer_error.response, 'text'):
-                print(f"API Error response: {analyzer_error.response.text}")
-            raise
-
-    except HTTPException as http_error:
-        print(f"HTTP Error: {http_error.detail}")
-        raise
-        
-    except Exception as e:
-        error_msg = f"Video analysis failed: {str(e)}"
-        print(error_msg)
-        raise HTTPException(status_code=500, detail=error_msg)
-        
-    finally:
-        # Clean up the temporary file if it exists
-        if temp_file_path and os.path.exists(temp_file_path):
-            try:
-                os.unlink(temp_file_path)
-                print(f"Cleaned up temporary file: {temp_file_path}")
-            except Exception as e:
-                print(f"Warning: Could not delete temporary file {temp_file_path}: {e}")
-
 @app.post("/api/video-analysis")
 async def analyze_video(file: UploadFile = File(...)):
     """
-    Analyze video and return results
+    Analyze video for emotions, speech, and audio features
     """
+    temp_file_path = None
     try:
+        print(f"📹 Starting video analysis for: {file.filename}")
+        
         # Validate file type
         if not file.filename.lower().endswith(('.mp4', '.mov', '.avi', '.mkv')):
             raise HTTPException(
                 status_code=400,
                 detail="Invalid file format. Supported formats: MP4, MOV, AVI, MKV"
             )
-            
-        # Process the video and return results directly
-        result = await analyze_video_file(file)
-        return result
         
+        # Save uploaded file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
+            shutil.copyfileobj(file.file, temp_file)
+            temp_file_path = temp_file.name
+            file_size = os.path.getsize(temp_file_path)
+            print(f"✅ Video saved: {file_size / 1024 / 1024:.2f} MB")
+        
+        # Analyze
+        print("🔍 Analyzing video...")
+        analyzer = get_video_analyzer()
+        result = analyzer.analyze_video(temp_file_path, use_cache=False)
+        
+        # Check for errors
+        if result.get('status') == 'error':
+            error_msg = result.get('error', 'Video analysis failed')
+            print(f"❌ Analysis error: {error_msg}")
+            raise HTTPException(status_code=400, detail=error_msg)
+        
+        print("✅ Video analysis completed successfully")
+        return JSONResponse(content=result)
+    
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to process video: {str(e)}")
+        print(f"❌ Error in video analysis: {e}")
+        raise HTTPException(status_code=500, detail=f"Video analysis failed: {str(e)}")
+    
+    finally:
+        # Clean up temp file
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.unlink(temp_file_path)
+                print(f"🧹 Cleaned up temporary file")
+            except Exception as e:
+                print(f"⚠️  Could not delete temporary file: {e}")
 
+
+# ============================================
+# ERROR HANDLERS
+# ============================================
+
+@app.exception_handler(404)
+async def not_found_handler(request, exc):
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error": "Not Found",
+            "message": "The requested endpoint does not exist",
+            "path": str(request.url.path)
+        }
+    )
+
+
+@app.exception_handler(500)
+async def internal_error_handler(request, exc):
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal Server Error",
+            "message": "An unexpected error occurred"
+        }
+    )
+
+
+# ============================================
+# RUN SERVER
+# ============================================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
+    print(f"🚀 Starting server on port {port}...")
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=port,
+        reload=False,  # Set to True for development
+        log_level="info"
+    )
